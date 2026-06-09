@@ -1,0 +1,78 @@
+name: Playwright E2E (Reusable)
+
+on:
+  workflow_call:
+    inputs:
+      base-url:
+        description: "Base URL of the app to test against"
+        type: string
+        default: "http://localhost:3000"
+      compose-file:
+        description: "Docker Compose file to spin up the test environment"
+        type: string
+        default: "docker-compose.test.yml"
+    secrets:
+      DOPPLER_TOKEN:
+        required: true
+      STRIPE_TEST_KEY:
+        required: false
+
+jobs:
+  playwright:
+    name: E2E — Critical flows
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "pnpm"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@sisforge"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Spin up test environment
+        run: docker compose -f ${{ inputs.compose-file }} up -d
+
+      - name: Wait for services to be healthy
+        run: |
+          npx wait-on \
+            ${{ inputs.base-url }}/health \
+            --timeout 60000 \
+            --interval 2000
+
+      - name: Run E2E tests
+        run: pnpm e2e
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          TEST_BASE_URL: ${{ inputs.base-url }}
+          STRIPE_TEST_KEY: ${{ secrets.STRIPE_TEST_KEY }}
+
+      - name: Upload failure screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-screenshots-${{ github.run_id }}
+          path: test-results/
+          retention-days: 7
+
+      - name: Tear down test environment
+        if: always()
+        run: docker compose -f ${{ inputs.compose-file }} down -v
