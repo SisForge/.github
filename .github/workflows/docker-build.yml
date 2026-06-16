@@ -37,7 +37,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build image (load locally for scanning)
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: false
@@ -47,13 +47,13 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Trivy container scan — block on CRITICAL/HIGH
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}
           format: sarif
           output: trivy-image-results.sarif
           severity: CRITICAL,HIGH
-          exit-code: 1
+          exit-code: '1'
           ignore-unfixed: true
 
       - name: Upload Trivy results
@@ -62,9 +62,10 @@ jobs:
         with:
           name: trivy-image-${{ inputs.image-name }}
           path: trivy-image-results.sarif
+          if-no-files-found: ignore
 
       - name: Push image to GHCR
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -77,10 +78,11 @@ jobs:
     name: Slack Notification
     runs-on: ubuntu-latest
     needs: [build-scan-push]
-    if: always() && secrets.SLACK_WEBHOOK_URL != ''
+    if: always()
     steps:
       - name: Notify result
-        uses: slackapi/slack-github-action@v1
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2
         with:
           payload: |
             {
