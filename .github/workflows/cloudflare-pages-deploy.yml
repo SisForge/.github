@@ -31,6 +31,10 @@ jobs:
     name: Build · Deploy (${{ inputs.environment }})
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
+    permissions:
+      deployments: write
+      contents: read
+      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
