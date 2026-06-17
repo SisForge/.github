@@ -22,9 +22,9 @@ on:
         default: "22"
     secrets:
       CLOUDFLARE_API_TOKEN:
-        required: true
+        required: false
       CLOUDFLARE_ACCOUNT_ID:
-        required: true
+        required: false
 
 jobs:
   deploy:
