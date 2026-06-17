@@ -31,10 +31,6 @@ jobs:
     name: Build · Deploy (${{ inputs.environment }})
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
-    permissions:
-      deployments: write
-      contents: read
-      pull-requests: write
 
     steps:
       - uses: actions/checkout@v4
@@ -61,5 +57,4 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ inputs.project-name }}
           directory: .next
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ inputs.branch }}
