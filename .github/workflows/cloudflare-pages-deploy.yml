@@ -1,0 +1,61 @@
+name: Cloudflare Pages Deploy
+
+on:
+  workflow_call:
+    inputs:
+      project-name:
+        description: Cloudflare Pages project name
+        required: true
+        type: string
+      environment:
+        description: staging or production
+        required: true
+        type: string
+      branch:
+        description: CF Pages branch override (empty = auto)
+        required: false
+        type: string
+        default: ""
+      node-version:
+        required: false
+        type: string
+        default: "22"
+    secrets:
+      CLOUDFLARE_API_TOKEN:
+        required: true
+      CLOUDFLARE_ACCOUNT_ID:
+        required: true
+
+jobs:
+  deploy:
+    name: Build · Deploy (${{ inputs.environment }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          projectName: ${{ inputs.project-name }}
+          directory: .next
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ inputs.branch }}
