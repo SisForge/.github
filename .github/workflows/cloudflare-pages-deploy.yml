@@ -48,7 +48,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm run build:cf
+        run: pnpm run build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/pages-action@v1
