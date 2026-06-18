@@ -56,5 +56,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ inputs.project-name }}
-          directory: .vercel/output/static
+          directory: out
           branch: ${{ inputs.branch }}
