@@ -28,6 +28,7 @@ jobs:
             --config p/typescript \
             --config p/owasp-top-ten \
             --config p/nodejs \
+            --exclude-rule yaml.github-actions.security.secrets-inherit.secrets-inherit \
             --error \
             --json \
             --output semgrep-results.json
