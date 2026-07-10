@@ -78,8 +78,9 @@ jobs:
         run: docker compose -f ${{ inputs.compose-file }} down -v
 
       - name: Notify Slack on failure
-        if: failure() && secrets.SLACK_WEBHOOK_URL != ''
-        uses: slackapi/slack-github-action@v1
+        if: failure()
+        continue-on-error: true
+        uses: slackapi/slack-github-action@v2
         with:
           payload: |
             {
