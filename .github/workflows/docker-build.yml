@@ -53,6 +53,9 @@ jobs:
           format: sarif
           output: trivy-image-results.sarif
           severity: CRITICAL,HIGH
+          # With sarif output the action ignores the severity filter unless this is set,
+          # so the exit-code gate fired on LOW/MEDIUM findings
+          limit-severities-for-sarif: true
           exit-code: '1'
           ignore-unfixed: true
 
