@@ -11,6 +11,11 @@ on:
         required: false
         type: string
         default: "22"
+      wrangler-env:
+        description: Named wrangler environment to deploy (e.g. "staging"). Empty deploys the top-level/production config.
+        required: false
+        type: string
+        default: ""
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
@@ -43,7 +48,7 @@ jobs:
           NODE_ENV: production
 
       - name: Deploy to Cloudflare Workers
-        run: pnpm exec wrangler deploy
+        run: pnpm exec wrangler deploy ${{ inputs.wrangler-env != '' && format('--env {0}', inputs.wrangler-env) || '' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
