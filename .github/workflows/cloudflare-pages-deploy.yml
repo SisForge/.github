@@ -20,6 +20,11 @@ on:
         required: false
         type: string
         default: "22"
+      directory:
+        description: Build output directory to deploy (Next.js static export uses "out", Astro uses "dist")
+        required: false
+        type: string
+        default: "out"
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: false
@@ -55,5 +60,5 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           projectName: ${{ inputs.project-name }}
-          directory: out
+          directory: ${{ inputs.directory }}
           branch: ${{ inputs.branch }}

@@ -11,6 +11,11 @@ on:
         required: false
         type: string
         default: "22"
+      wrangler-env:
+        description: Named wrangler environment to deploy (e.g. "staging"). Empty deploys the top-level/production config.
+        required: false
+        type: string
+        default: ""
     secrets:
       CLOUDFLARE_API_TOKEN:
         required: true
