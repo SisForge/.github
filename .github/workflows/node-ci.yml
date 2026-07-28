@@ -31,6 +31,9 @@ jobs:
     name: Type Check · Lint · Test
     runs-on: ubuntu-latest
     needs: detect-secrets
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -44,6 +47,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Type check
         run: pnpm run type-check
@@ -58,6 +63,9 @@ jobs:
     name: Dependency Audit
     runs-on: ubuntu-latest
     needs: detect-secrets
+    permissions:
+      contents: read
+      packages: read
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +79,8 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Audit — block on HIGH/CRITICAL CVEs
         run: pnpm audit --audit-level=high
