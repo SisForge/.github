@@ -48,7 +48,13 @@ jobs:
           NODE_ENV: production
 
       - name: Deploy to Cloudflare Workers
-        run: pnpm exec wrangler deploy ${{ inputs.wrangler-env != '' && format('--env {0}', inputs.wrangler-env) || '' }}
+        run: |
+          case "$DEPLOY_ENVIRONMENT" in
+            staging) pnpm exec wrangler deploy --env staging ;;
+            production) pnpm exec wrangler deploy ;;
+            *) echo "Unknown environment: $DEPLOY_ENVIRONMENT" >&2; exit 1 ;;
+          esac
         env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
