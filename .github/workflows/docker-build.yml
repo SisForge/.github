@@ -12,6 +12,11 @@ on:
         description: Image name (e.g. siswrench-api)
         required: true
         type: string
+      tag:
+        description: Extra tag to publish alongside the sha (e.g. latest, staging)
+        required: false
+        type: string
+        default: "latest"
     secrets:
       SLACK_WEBHOOK_URL:
         required: false
@@ -45,6 +50,8 @@ jobs:
           tags: ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          secrets: |
+            node_auth_token=${{ secrets.GITHUB_TOKEN }}
 
       - name: Trivy container scan — block on CRITICAL/HIGH
         uses: aquasecurity/trivy-action@v0.36.0
@@ -71,8 +78,10 @@ jobs:
           push: true
           tags: |
             ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}
-            ghcr.io/sisforge/${{ inputs.image-name }}:latest
+            ghcr.io/sisforge/${{ inputs.image-name }}:${{ inputs.tag }}
           cache-from: type=gha
+          secrets: |
+            node_auth_token=${{ secrets.GITHUB_TOKEN }}
 
   notify-slack:
     name: Slack Notification
