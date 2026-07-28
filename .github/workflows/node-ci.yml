@@ -44,6 +44,8 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: "@sisforge"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -76,6 +78,8 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           cache: pnpm
+          registry-url: https://npm.pkg.github.com
+          scope: "@sisforge"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
