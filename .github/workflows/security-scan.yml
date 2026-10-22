@@ -60,6 +60,7 @@ jobs:
           vuln-type: library
           exit-code: '1'
           ignore-unfixed: true
+          limit-severities-for-sarif: true
 
       - name: Upload Trivy results
         if: always()
