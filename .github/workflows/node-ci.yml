@@ -87,7 +87,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Audit — block on HIGH/CRITICAL CVEs
-        run: pnpm audit --audit-level=high
+        run: pnpm audit --audit-level=high --prod
 
   notify-slack:
     name: Slack Notification
