@@ -13,91 +13,223 @@ on:
         required: true
         type: string
       tag:
-        description: Extra tag to publish alongside the sha (e.g. latest, staging)
+        description: Legacy mutable tag (retained for existing callers)
         required: false
         type: string
-        default: "latest"
+        default: latest
+      push-latest:
+        description: Allow latest (legacy non-latest tag callers retain their original tag set)
+        required: false
+        type: boolean
+        default: true
+      extra-tags:
+        description: Additional bare tags separated by commas or whitespace
+        required: false
+        type: string
+        default: ""
+      push:
+        description: Publish only after scanning and verification (always disabled on PR events)
+        required: false
+        type: boolean
+        default: true
+      platforms:
+        description: Single Linux platform to build and scan; multi-platform indexes fail closed
+        required: false
+        type: string
+        default: linux/amd64
+      context:
+        description: Build context containing Dockerfile (also used by the isolated self-test fixture)
+        required: false
+        type: string
+        default: .
     secrets:
       SLACK_WEBHOOK_URL:
         required: false
+    outputs:
+      scanned-digest:
+        description: OCI manifest digest verified before and after Trivy
+        value: ${{ jobs.build-scan.outputs.digest }}
+      published-digest:
+        description: Verified registry manifest digest; empty when publication is disabled
+        value: ${{ jobs.publish.outputs.digest }}
 
 jobs:
-  build-scan-push:
-    name: Build · Trivy · Push
-    runs-on: ubuntu-latest
+  build-scan:
+    name: Build · Trivy · Verify OCI
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
-      packages: write
-
+      packages: read
+    outputs:
+      digest: ${{ steps.proof.outputs.digest }}
+      archive-sha256: ${{ steps.proof.outputs.archive-sha256 }}
+    env:
+      IMAGE_NAME: ${{ inputs.image-name }}
+      COMMIT_SHA: ${{ github.sha }}
+      PLATFORMS: ${{ inputs.platforms }}
+      LEGACY_TAG: ${{ inputs.tag }}
+      PUSH_LATEST: ${{ inputs.push-latest }}
+      EXTRA_TAGS: ${{ inputs.extra-tags }}
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build image (load locally for scanning)
-        uses: docker/build-push-action@v7
+          persist-credentials: false
+      # Helper code is immutable and belongs to this workflow, not the caller checkout.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          context: .
+          repository: SisForge/.github
+          ref: 115a4d95e2e1a4b9cc16f2434988d9735d5e2920
+          path: .docker-workflow
+          sparse-checkout: scripts
+          persist-credentials: false
+      - name: Prepare trusted helpers and validate inputs
+        shell: bash
+        run: |
+          mv .docker-workflow/scripts "$RUNNER_TEMP/docker-tools"
+          rm -rf .docker-workflow
+          source "$RUNNER_TEMP/docker-tools/docker-artifact.sh"
+          mkdir "$RUNNER_TEMP/docker-artifact"
+          plan_tags | awk '!seen[$0]++' > "$RUNNER_TEMP/docker-tags"
+          bash "$RUNNER_TEMP/docker-tools/install-skopeo.sh"
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build once as OCI archive
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
+        with:
+          context: ${{ inputs.context }}
+          file: ${{ inputs.context }}/Dockerfile
+          platforms: ${{ inputs.platforms }}
           push: false
-          load: true
-          tags: ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}
+          outputs: type=oci,dest=${{ runner.temp }}/docker-artifact/image.tar
+          provenance: false
+          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
           secrets: |
             node_auth_token=${{ secrets.GITHUB_TOKEN }}
-
+      - name: Verify OCI content and record identity
+        id: proof
+        shell: bash
+        run: |
+          source "$RUNNER_TEMP/docker-tools/docker-artifact.sh"
+          mkdir "$RUNNER_TEMP/scanned-oci"
+          tar -xf "$RUNNER_TEMP/docker-artifact/image.tar" -C "$RUNNER_TEMP/scanned-oci" --no-same-owner
+          digest="$(jq -r '.manifests[0].digest' "$RUNNER_TEMP/scanned-oci/index.json")"
+          verify_layout "$RUNNER_TEMP/scanned-oci" "$digest" "$PLATFORMS"
+          checksum="$(sha256sum "$RUNNER_TEMP/docker-artifact/image.tar" | cut -d' ' -f1)"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "archive-sha256=$checksum" >> "$GITHUB_OUTPUT"
       - name: Trivy container scan — block on CRITICAL/HIGH
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}
+          version: v0.71.1
+          input: ${{ runner.temp }}/scanned-oci
           format: sarif
           output: trivy-image-results.sarif
           severity: CRITICAL,HIGH
           exit-code: '1'
           ignore-unfixed: true
-
+          limit-severities-for-sarif: true
+      - name: Verify scanned content and local digest-preserving transport
+        shell: bash
+        env:
+          EXPECTED: ${{ steps.proof.outputs.digest }}
+          ARCHIVE_SHA256: ${{ steps.proof.outputs.archive-sha256 }}
+        run: |
+          source "$RUNNER_TEMP/docker-tools/docker-artifact.sh"
+          verify_layout "$RUNNER_TEMP/scanned-oci" "$EXPECTED" "$PLATFORMS"
+          test "$(sha256sum "$RUNNER_TEMP/docker-artifact/image.tar" | cut -d' ' -f1)" = "$ARCHIVE_SHA256"
+          skopeo copy --preserve-digests "oci:$RUNNER_TEMP/scanned-oci" "oci:$RUNNER_TEMP/transport-check:verified"
+          verify_layout "$RUNNER_TEMP/transport-check" "$EXPECTED" "$PLATFORMS"
+          echo "Scanned and locally transported manifest: $EXPECTED" >> "$GITHUB_STEP_SUMMARY"
+      - name: Store only the scanned image for publication
+        if: inputs.push && !startsWith(github.event_name, 'pull_request')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: docker-oci-${{ inputs.image-name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docker-artifact/image.tar
+          retention-days: 1
+          compression-level: 0
+          if-no-files-found: error
       - name: Upload Trivy results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: trivy-image-${{ inputs.image-name }}
           path: trivy-image-results.sarif
+          retention-days: 1
           if-no-files-found: ignore
 
-      - name: Push image to GHCR
-        uses: docker/build-push-action@v7
+  publish:
+    name: Publish verified OCI
+    needs: build-scan
+    if: inputs.push && !startsWith(github.event_name, 'pull_request')
+    runs-on: ubuntu-24.04
+    # Inherit the caller's packages permission. Validation-only callers need no write grant.
+    outputs:
+      digest: ${{ steps.publish.outputs.digest }}
+    env:
+      IMAGE_NAME: ${{ inputs.image-name }}
+      COMMIT_SHA: ${{ github.sha }}
+      PLATFORMS: ${{ inputs.platforms }}
+      LEGACY_TAG: ${{ inputs.tag }}
+      PUSH_LATEST: ${{ inputs.push-latest }}
+      EXTRA_TAGS: ${{ inputs.extra-tags }}
+      PUSH_IMAGE: ${{ inputs.push }}
+      EVENT_NAME: ${{ github.event_name }}
+      EXPECTED: ${{ needs.build-scan.outputs.digest }}
+      ARCHIVE_SHA256: ${{ needs.build-scan.outputs.archive-sha256 }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}
-            ghcr.io/sisforge/${{ inputs.image-name }}:${{ inputs.tag }}
-          cache-from: type=gha
-          secrets: |
-            node_auth_token=${{ secrets.GITHUB_TOKEN }}
+          repository: SisForge/.github
+          ref: 115a4d95e2e1a4b9cc16f2434988d9735d5e2920
+          persist-credentials: false
+          sparse-checkout: scripts
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: docker-oci-${{ inputs.image-name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/docker-artifact
+      - name: Verify and publish the scanned artifact, SHA first
+        id: publish
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: |
+          source scripts/docker-artifact.sh
+          publication_allowed
+          bash scripts/install-skopeo.sh
+          test "$(sha256sum "$RUNNER_TEMP/docker-artifact/image.tar" | cut -d' ' -f1)" = "$ARCHIVE_SHA256"
+          mkdir "$RUNNER_TEMP/publish-oci"
+          tar -xf "$RUNNER_TEMP/docker-artifact/image.tar" -C "$RUNNER_TEMP/publish-oci" --no-same-owner
+          verify_layout "$RUNNER_TEMP/publish-oci" "$EXPECTED" "$PLATFORMS"
+          plan_tags | awk '!seen[$0]++' > "$RUNNER_TEMP/docker-tags"
+          export REGISTRY_AUTH_FILE="$RUNNER_TEMP/ghcr-auth.json"
+          trap 'rm -f "$REGISTRY_AUTH_FILE"' EXIT
+          printf '%s' "$GHCR_TOKEN" | skopeo login --authfile "$REGISTRY_AUTH_FILE" --username "$GHCR_USER" --password-stdin ghcr.io
+          publish_artifact "$RUNNER_TEMP/publish-oci" "$EXPECTED" "$PLATFORMS" "ghcr.io/sisforge/$IMAGE_NAME" "$RUNNER_TEMP/docker-tags"
+          echo "digest=$EXPECTED" >> "$GITHUB_OUTPUT"
+          echo "Published and verified: ghcr.io/sisforge/$IMAGE_NAME@$EXPECTED" >> "$GITHUB_STEP_SUMMARY"
 
   notify-slack:
     name: Slack Notification
-    runs-on: ubuntu-latest
-    needs: [build-scan-push]
+    runs-on: ubuntu-24.04
+    needs: [build-scan, publish]
     if: always()
+    permissions:
+      contents: read
+    env:
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
     steps:
       - name: Notify result
+        if: env.SLACK_WEBHOOK_URL != ''
         continue-on-error: true
-        uses: slackapi/slack-github-action@v2
+        uses: slackapi/slack-github-action@91efab103c0de0a537f72a35f6b8cda0ee76bf0a # v2
         with:
           payload: |
             {
-              "text": "${{ needs.build-scan-push.result == 'success' && ':docker: *Image pushed*' || ':x: *Docker build/scan failed*' }} — `${{ inputs.image-name }}` @ `${{ github.ref_name }}`",
+              "text": "${{ needs.publish.result == 'success' && ':docker: *Image pushed and verified*' || (needs.build-scan.result == 'success' && needs.publish.result == 'skipped' && ':white_check_mark: *Image scanned; publication disabled*' || ':x: *Docker build/scan/publication failed*') }} — `${{ inputs.image-name }}` @ `${{ github.ref_name }}`",
               "attachments": [{
-                "color": "${{ needs.build-scan-push.result == 'success' && 'good' || 'danger' }}",
                 "fields": [
                   { "title": "Image", "value": "ghcr.io/sisforge/${{ inputs.image-name }}:${{ github.sha }}", "short": false },
                   { "title": "Run", "value": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}", "short": false }
@@ -105,5 +237,4 @@ jobs:
               }]
             }
         env:
-          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           SLACK_WEBHOOK_TYPE: INCOMING_WEBHOOK
