@@ -7,6 +7,7 @@ plan_tags() {
   [[ "$COMMIT_SHA" =~ ^[a-f0-9]{40}$ ]] || artifact_error 'Expected a full commit SHA.' || return
   [[ "$PLATFORMS" =~ ^linux/(amd64|arm64|arm/v7)$ ]] || artifact_error 'Exactly one supported Linux platform is required; never scan only part of an index.' || return
   local tag
+  [[ "$LEGACY_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || artifact_error 'Invalid legacy tag.' || return
   printf '%s\n' "$COMMIT_SHA"
   # Legacy callers setting tag: staging must retain their former tag set.
   if [[ "$LEGACY_TAG" != latest && -n "$LEGACY_TAG" ]]; then printf '%s\n' "$LEGACY_TAG"; fi
@@ -16,7 +17,7 @@ plan_tags() {
     [[ "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || artifact_error 'Invalid additional tag.' || return
     [[ "$tag" != latest || "$PUSH_LATEST" == true ]] || artifact_error 'latest is forbidden.' || return
     printf '%s\n' "$tag"
-  done < <(printf '%s\n%s\n' "$LEGACY_TAG" "$EXTRA_TAGS" | tr ', \t' '\n' | sed '/^$/d' | grep -v '^latest$' || true)
+  done < <(printf '%s\n' "$EXTRA_TAGS" | tr ', \t' '\n' | sed '/^$/d')
   # Check explicit extra latest independently; the default legacy tag is ignored when disabled.
   if [[ "$PUSH_LATEST" != true ]] && printf '%s' "$EXTRA_TAGS" | tr ', \t' '\n' | grep -qx latest; then
     artifact_error 'latest is forbidden.'; return 1

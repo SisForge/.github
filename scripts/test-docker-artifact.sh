@@ -12,6 +12,7 @@ plan_tags | awk '!seen[$0]++' > "$work/tags"
 PUSH_LATEST=false EXTRA_TAGS=staging plan_tags | awk '!seen[$0]++' > "$work/staging"
 [[ "$(cat "$work/staging")" == "$COMMIT_SHA"$'\nstaging' ]]
 [[ "$(LEGACY_TAG=staging plan_tags | awk '!seen[$0]++')" == "$COMMIT_SHA"$'\nstaging' ]]
+[[ "$(LEGACY_TAG=staging EXTRA_TAGS=latest plan_tags | awk '!seen[$0]++')" == "$COMMIT_SHA"$'\nstaging\nlatest' ]]
 if PUSH_LATEST=false EXTRA_TAGS=latest plan_tags > /dev/null 2>&1; then exit 1; fi
 for event in pull_request pull_request_target; do
   if EVENT_NAME="$event" publication_allowed; then exit 1; fi
