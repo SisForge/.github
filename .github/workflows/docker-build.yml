@@ -176,7 +176,6 @@ jobs:
       EXTRA_TAGS: ${{ inputs.extra-tags }}
       PUSH_IMAGE: ${{ inputs.push }}
       EVENT_NAME: ${{ github.event_name }}
-      EXPECTED: ${{ needs.build-scan.outputs.digest }}
       ARCHIVE_SHA256: ${{ needs.build-scan.outputs.archive-sha256 }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -193,6 +192,7 @@ jobs:
         id: publish
         shell: bash
         env:
+          EXPECTED: ${{ needs.build-scan.outputs.digest }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_USER: ${{ github.actor }}
         run: |
