@@ -197,6 +197,7 @@ jobs:
           GHCR_USER: ${{ github.actor }}
         run: |
           source scripts/docker-artifact.sh
+          : "${EXPECTED:?Missing scanned manifest digest}"
           publication_allowed
           bash scripts/install-skopeo.sh
           test "$(sha256sum "$RUNNER_TEMP/docker-artifact/image.tar" | cut -d' ' -f1)" = "$ARCHIVE_SHA256"
