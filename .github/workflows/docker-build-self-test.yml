@@ -1,0 +1,68 @@
+name: Docker workflow self-test
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  contract:
+    name: Workflow contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Offline safety contracts and shell syntax
+        run: |
+          bash -n scripts/docker-artifact.sh scripts/install-skopeo.sh scripts/test-docker-artifact.sh
+          shellcheck -x scripts/*.sh
+          bash scripts/test-docker-artifact.sh
+      - name: Validate workflow YAML and Actions expressions
+        # Go's checksum database verifies this exact source version.
+        run: |
+          test -x "$(command -v go)"
+          GOBIN="$RUNNER_TEMP/actionlint" go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          "$RUNNER_TEMP/actionlint/actionlint" .github/workflows/docker-build.yml .github/workflows/docker-build-self-test.yml
+  default-validation:
+    name: Default tags, no publication
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image-name: docker-workflow-default-self-test
+      context: .github/fixtures/docker
+      push: false
+  staging-validation:
+    name: Staging tags, no publication
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image-name: docker-workflow-staging-self-test
+      context: .github/fixtures/docker
+      push: false
+      push-latest: false
+      extra-tags: staging
+
+  pr-publication-guard:
+    name: PR cannot request publication
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/docker-build.yml
+    with:
+      image-name: docker-workflow-pr-guard-self-test
+      context: .github/fixtures/docker
+      push: true
+  pr-guard-result:
+    name: Verify PR publication was skipped
+    needs: pr-publication-guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require a scan without a published digest
+        env:
+          SCANNED: ${{ needs.pr-publication-guard.outputs.scanned-digest }}
+          PUBLISHED: ${{ needs.pr-publication-guard.outputs.published-digest }}
+        run: |
+          test -n "$SCANNED"
+          test -z "$PUBLISHED"
